@@ -1,0 +1,489 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useMutation } from '@apollo/client';
+import PRIVATE_CHAT_MUTATION from '@/containers/graphql/mutations/privateChat';
+import { getUserData } from '@/middleware/middleware';
+import showSuccessMessage from '@/utilities/showSuccessMessage';
+import showErrorMessage from '@/utilities/showErrorMessage';
+import { onClickAnalytics } from '@/utilities/analytics';
+import PropTypes from 'prop-types';
+
+const CustomDropdown = ({ options, selected, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleSelect = (value) => {
+    onChange(value);
+    setIsOpen(false);
+  };
+
+  const selectedLabel =
+    options.find((option) => option.value === selected)?.label || '';
+    
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <div
+        className="flex items-center justify-between w-full px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 cursor-pointer"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span>{selectedLabel}</span>
+        <svg
+          className={`w-4 h-4 ml-2 transition-transform duration-200 text-gray-600 ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M19 9l-7 7-7-7"
+          ></path>
+        </svg>
+      </div>
+      {isOpen && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+          {options.map((option, index) => (
+            <div
+              key={index}
+              className={`px-4 py-2 cursor-pointer hover:bg-gray-100 flex items-center justify-between ${
+                selected === option.value ? 'bg-[#462860]text-blue-700' : 'text-gray-700'
+              }`}
+              onClick={() => handleSelect(option.value)}
+            >
+              {option.label}
+              {selected === option.value && (
+                <svg
+                  className="w-4 h-4 ml-2 text-blue-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  ></path>
+                </svg>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ChatModal = ({
+  openChatModal,
+  setOpenChatModal,
+  gameCode,
+  playerMessage,
+  setPlayerMessage,
+  gameMessage,
+  setGameMessage,
+  gameStatusData,
+  playersWaiting,
+  activePlayersInGame,
+  setUnreadMessage,
+}) => {
+  const [privateChatFunc] = useMutation(PRIVATE_CHAT_MUTATION);
+  const [recipient, setRecipient] = useState('everyone');
+  const [isSending, setIsSending] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const chatContainerRef = useRef(null);
+  const messageInputRef = useRef(null);
+  const modalRef = useRef(null);
+  const currentUser = getUserData().fullname;
+
+  // Handle viewport resize (keyboard appearance)
+  useEffect(() => {
+    const handleResize = () => {
+      // On iOS the window height changes when the keyboard appears
+      const isKeyboard = window.innerHeight < window.outerHeight * 0.75;
+      setIsKeyboardVisible(isKeyboard);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Handle input focus
+  useEffect(() => {
+    if (openChatModal && messageInputRef.current) {
+      // Small delay to ensure layout is complete
+      setTimeout(() => {
+        if (messageInputRef.current) {
+          messageInputRef.current.focus();
+        }
+      }, 100);
+    }
+  }, [openChatModal]);
+
+  // Outside click handler
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Only close if clicking outside AND not when keyboard is visible
+      if (
+        modalRef.current && 
+        !modalRef.current.contains(event.target) && 
+        !isKeyboardVisible &&
+        !isInputFocused
+      ) {
+        setOpenChatModal(false);
+      }
+    };
+
+    // We use mousedown instead of click to prevent issues with focus
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [setOpenChatModal, isKeyboardVisible, isInputFocused]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [gameMessage]);
+
+  // Handle new messages from game status
+  useEffect(() => {
+    if (gameStatusData?.getGameStatus?.engagement?.content) {
+      const { sender, content, dateTime, recipientId } =
+        gameStatusData.getGameStatus.engagement;
+      const newMessage = { sender, content, dateTime, recipientId };
+
+      setGameMessage((prevChat) => {
+        const isDuplicate = prevChat.some(
+          (msg) => JSON.stringify(msg) === JSON.stringify(newMessage)
+        );
+        if (!isDuplicate) {
+          return [...prevChat, newMessage];
+        }
+        return prevChat;
+      });
+
+      if (!openChatModal) {
+        setUnreadMessage(true);
+      }
+    }
+  }, [
+    gameStatusData?.getGameStatus?.engagement,
+    openChatModal,
+    setGameMessage,
+    setUnreadMessage,
+  ]);
+
+  const handleClose = (e) => {
+    setOpenChatModal(false);
+    e.stopPropagation();
+  };
+
+  const SendPlayerMessage = async () => {
+    if (playerMessage.trim() === '') {
+      showErrorMessage('Please enter your message');
+      return;
+    }
+
+    setIsSending(true);
+    
+    const recipientLabel =
+      dropdownOptions.find((option) => option.value === recipient)?.label ||
+      'everyone';
+
+    try {
+      await privateChatFunc({
+        variables: {
+          message: playerMessage,
+          gameCode: gameCode,
+          recipientId: recipient === 'everyone' ? null : recipient,
+        },
+      });
+
+      const newMessage = {
+        name: 'Me',
+        sender: currentUser,
+        dateTime: new Date(),
+        message: playerMessage,
+        content: playerMessage,
+        recipient: recipientLabel,
+        recipientId: recipient === 'everyone' ? null : recipient,
+      };
+
+      // Only add the message to gameMessage if it's from the current user
+      setGameMessage((prevState) => [...prevState, newMessage]);
+
+      onClickAnalytics('Message Sent', {
+        message: playerMessage,
+        gameCode: gameCode,
+      });
+
+      showSuccessMessage('Message sent successfully');
+      setPlayerMessage('');
+      
+      // Focus the input field again after sending
+      if (messageInputRef.current) {
+        messageInputRef.current.focus();
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      showErrorMessage('Failed to send message');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const getPlayersList = () => {
+    const players = playersWaiting || activePlayersInGame || [];
+    return players.filter((player) => player.fullname !== currentUser);
+  };
+
+  const dropdownOptions = [
+    { label: 'Everyone', value: 'everyone' },
+    ...getPlayersList().map((player) => ({
+      label: player.fullname,
+      value: player.id,
+    })),
+  ];
+
+  const handleInputFocus = () => {
+    setIsInputFocused(true);
+  };
+
+  const handleInputBlur = () => {
+    // Add a small delay to ensure click events are processed first
+    setTimeout(() => {
+      setIsInputFocused(false);
+    }, 100);
+  };
+
+  // Format the message timestamp
+  const formatTime = (dateTime) => {
+    return new Date(dateTime).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  if (!openChatModal) return null;
+
+  return (
+    <div className={`fixed bottom-0 right-0 left-0 md:bottom-6 md:right-6 md:left-auto p-2 z-50`}>
+      <div 
+        ref={modalRef}
+        className="bg-white rounded-lg shadow-xl w-full md:w-96 overflow-hidden flex flex-col animate-fadeIn"
+        style={{ 
+          height: isKeyboardVisible ? '60vh' : '500px',
+          maxHeight: 'calc(100vh - 24px)'
+        }}
+      >
+        {/* Header */}
+        <div className="bg-[#462860] px-4 py-3 flex items-center justify-between">
+          <span className="text-sm font-semibold text-white flex items-center">
+            <span className="h-2 w-2 text-sm rounded-full bg-green-300 mr-2"></span>
+            In-Game Chat
+          </span>
+          <button
+            onClick={handleClose}
+            className="text-white hover:text-gray-200 transition-colors focus:outline-none"
+            aria-label="Close chat"
+          >
+            <svg
+              className="w-6 h-6 bg-[#462860]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        {/* Chat content */}
+        <div 
+          ref={chatContainerRef}
+          className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100"
+        >
+          {gameMessage.length > 0 ? (
+            gameMessage.map((msg, index) => {
+              const isCurrentUser =
+                msg.name === 'Me' || msg.sender === currentUser;
+              const isEveryone =
+                msg.recipient === 'everyone' ||
+                msg.recipient === 'Everyone' ||
+                !msg.recipientId;
+              const messageContent = msg.message || msg.content;
+              
+              return (
+                <div 
+                  key={index}
+                  className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}
+                >
+                  <div 
+                    className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                      isCurrentUser 
+                        ? 'bg-[#462860] text-white' 
+                        : 'bg-gray-200 text-gray-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">{isCurrentUser ? 'Me' : msg.sender}</span>
+                      <div className="flex items-center text-xs ml-2">
+                        {isEveryone 
+                          ? <span className="text-gray-100 text-xs mr-2 bg-gray-500 px-1 rounded">@everyone</span> 
+                          : isCurrentUser 
+                            ? <span className="text-gray-100 text-xs mr-2 bg-gray-500 px-1 rounded">@{msg.recipient}</span>
+                            : <span className="text-gray-100 text-xs mr-2 bg-gray-500 px-1 rounded">DM</span>
+                        }
+                      </div>
+                    </div>
+                    <p className="break-words">{messageContent}</p>
+                    <div className="text-right text-xs mt-1 opacity-70">
+                      {formatTime(msg.dateTime)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-500 italic">No messages yet</p>
+            </div>
+          )}
+        </div>
+
+        {/* Dropdown for recipient selection */}
+        <div className="px-4 py-2 bg-gray-100">
+          <CustomDropdown
+            options={dropdownOptions}
+            selected={recipient}
+            onChange={setRecipient}
+          />
+        </div>
+
+        {/* Input area */}
+        <div className="px-4 py-3 bg-gray-100 border-t border-gray-200 flex items-center">
+          <div className="relative flex-1 mr-2">
+            <textarea
+              ref={messageInputRef}
+              className="w-full bg-white text-gray-800 border border-gray-300 rounded-lg pl-4 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none min-h-[40px] max-h-20"
+              value={playerMessage}
+              onChange={(e) => setPlayerMessage(e.target.value)}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  SendPlayerMessage();
+                }
+              }}
+              placeholder="Type message..."
+              rows="1"
+            />
+          </div>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              SendPlayerMessage();
+            }}
+            disabled={isSending || !playerMessage.trim()}
+            className={`flex items-center justify-center bg-[#462860] hover:bg-[#462860] text-white rounded-lg px-4 py-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              (isSending || !playerMessage.trim()) ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            {isSending ? (
+              <svg 
+                className="animate-spin h-5 w-5 text-white" 
+                xmlns="http://www.w3.org/2000/svg" 
+                fill="none" 
+                viewBox="0 0 24 24"
+              >
+                <circle 
+                  className="opacity-25" 
+                  cx="12" 
+                  cy="12" 
+                  r="10" 
+                  stroke="currentColor" 
+                  strokeWidth="4"
+                ></circle>
+                <path 
+                  className="opacity-75" 
+                  fill="currentColor" 
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+            ) : (
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                ></path>
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+CustomDropdown.propTypes = {
+  options: PropTypes.arrayOf(
+    PropTypes.shape({
+      value: PropTypes.string,
+      label: PropTypes.string,
+    })
+  ),
+  selected: PropTypes.string,
+  onChange: PropTypes.func,
+};
+
+ChatModal.propTypes = {
+  openChatModal: PropTypes.bool,
+  setOpenChatModal: PropTypes.func,
+  playerMessage: PropTypes.string,
+  setPlayerMessage: PropTypes.func,
+  gameMessage: PropTypes.oneOfType([PropTypes.string, PropTypes.array]),
+  setGameMessage: PropTypes.func,
+  gameStatusData: PropTypes.object,
+  playersWaiting: PropTypes.arrayOf(PropTypes.object),
+  activePlayersInGame: PropTypes.arrayOf(PropTypes.object),
+  setUnreadMessage: PropTypes.func,
+};
+
+export default ChatModal;

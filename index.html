@@ -1,0 +1,105 @@
+
+  <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Task Assigned!</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      background-color: #f9f9f9;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border: 1px solid #e0e0e0;
+      padding: 20px;
+      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      text-align: center;
+      padding: 20px;
+      background-color: #e7f1fe;
+      color: #004085;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .content {
+      padding: 20px;
+    }
+    .content h2 {
+      color: #004085;
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    .content p {
+      font-size: 16px;
+      line-height: 1.5;
+      color: #555;
+    }
+    .task-details {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #e0e0e0;
+      background-color: #f9f9f9;
+    }
+    .task-details p {
+      margin: 5px 0;
+      font-size: 16px;
+    }
+    .footer {
+      text-align: center;
+      padding: 15px;
+      background-color: #e7f1fe;
+      color: #555;
+      font-size: 14px;
+    }
+    .footer a {
+      color: #007bff;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>New Task Assigned</h1>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <h2>Dear ${data.firstName},</h2>
+      <p>You have been assigned a new task. Please find the details below:</p>
+
+      <!-- Task Details -->
+      <div class="task-details">
+        <p><strong>Task Title:</strong> ${data.taskTitle}</p>
+        <p><strong>Priority:</strong> ${data.priority}</p>
+        <p><strong>Deadline:</strong> ${data.deadline}</p>
+      </div>
+
+      <p>We trust that you will approach this task with diligence and professionalism. If you have any questions or need further clarification, feel free to reach out.</p>
+      <p>Thank you for your hard work and dedication!</p>
+
+      <p>Best regards, <br><strong>The Management Team</strong></p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p><a href="mailto:team@futurelivingafrica.com">Email Us</a> | Call Us: +234 802 431 2231</p>
+    </div>
+  </div>
+</body>
+   </html>

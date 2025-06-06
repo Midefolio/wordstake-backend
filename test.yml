@@ -1,0 +1,23 @@
+config:
+  target: "http://localhost:4000"
+  phases:
+    - duration: 60
+      arrivalRate: 20
+      rampTo: 100
+      name: "Warming up the API"
+    - duration: 120
+      arrivalRate: 100
+      name: "Sustained max load"
+  defaults:
+    headers:
+      Authorization: "Bearer YOUR_TOKEN_HERE"
+
+scenarios:
+  - name: "Search products and get details"
+    flow:
+      - get:
+          url: "/products?page=1&limit=50"
+      - get:
+          url: "/products/search?query=shea"
+      - get:
+          url: "/products/{{$randomString(24)}}"
