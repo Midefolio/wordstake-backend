@@ -79,8 +79,6 @@ const startServer = () => {
 
 // Connect to Redis, then connect to MongoDB and start the server
 
-connectToDb(startServer);
-
 const redis = connectToRedis();
 
 redis.once('connect', () => {
