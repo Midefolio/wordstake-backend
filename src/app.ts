@@ -56,7 +56,7 @@ app.use(ErrorHandler);
 // This function will start the server after Redis connects
 const startServer = () => {
     const server = http.createServer(app);
-    server.listen(env.PORT, (): void => {
+    server.listen(env.PORT || 3000, (): void => {
         logger.info(`✅ Server listening on port ${env.PORT}`);
     });
 
