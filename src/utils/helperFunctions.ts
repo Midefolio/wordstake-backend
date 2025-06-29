@@ -6,6 +6,8 @@ import argon2 from 'argon2';
 import NodeCache from 'node-cache';
 import validator from 'validator';
 import PasswordValidator from 'password-validator';
+import { Keypair, Connection } from '@solana/web3.js';
+import bs58 from 'bs58';
 
 const cache = new NodeCache({ stdTTL: 600 });  // expires in 10mins
 
@@ -136,6 +138,124 @@ const validatePassword = (password: string): any => {
   return schema.validate(password);
 };
 
+
+const generateRandomLetters = () => {
+  const vowels = 'aeiou';
+  const consonants = 'bcdfghjklmnpqrstvwxyz';
+  const letters = [];
+  const usage:any = {};
+
+  // Ensure at least 2 vowels
+  for (let i = 0; i < 2; i++) {
+    const letter = vowels[Math.floor(Math.random() * vowels.length)];
+    letters.push(letter);
+    usage[letter] = (usage[letter] || 0) + 1;
+  }
+
+  // Add 6 consonants
+  for (let i = 0; i < 6; i++) {
+    const letter = consonants[Math.floor(Math.random() * consonants.length)];
+    letters.push(letter);
+    usage[letter] = (usage[letter] || 0) + 1;
+  }
+
+  // Shuffle the letters
+  for (let i = letters.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [letters[i], letters[j]] = [letters[j], letters[i]];
+  }
+
+  return {
+    letters,
+    usage
+  };
+};
+
+// Gorbagana Testnet configuration
+const GORBAGANA_RPC_URL = 'https://rpc.gorbagana.wtf';
+const GORBAGANA_NETWORK_NAME = 'Gorbagana Testnet';
+
+/**
+ * Creates a new Gorbagana Testnet wallet
+ * @returns Object containing public key, private key, and network info
+ */
+export const createGorbaganaWallet = async (): Promise<{
+    pubKey: string;
+    privateKey: string;
+}> => {
+    try {
+        // Create connection to Gorbagana testnet
+        const connection = new Connection(GORBAGANA_RPC_URL, 'confirmed');
+        
+        // Generate a new keypair for Gorbagana (Solana-based)
+        const keypair = Keypair.generate();
+        
+        // Get the public key as a base58 string
+        const pubKey = keypair.publicKey.toBase58();
+        
+        // Get the private key as a base58 string
+        const privateKey = bs58.encode(keypair.secretKey);
+        
+        // Verify connection to Gorbagana testnet
+        try {
+            const version = await connection.getVersion();
+            console.log(`Connected to ${GORBAGANA_NETWORK_NAME}:`, version);
+        } catch (connectionError) {
+            console.warn('Could not verify connection to Gorbagana testnet:', connectionError);
+        }        
+        return {
+            pubKey,
+            privateKey,
+        };
+    } catch (error: any) {
+        console.error(`Error creating ${GORBAGANA_NETWORK_NAME} wallet:`, error);
+        throw new Error(`Failed to create ${GORBAGANA_NETWORK_NAME} wallet: ${error.message}`);
+    }
+};
+
+/**
+ * Helper function to get Gorbagana testnet connection
+ * @returns Connection object for Gorbagana testnet
+ */
+export const getGorbaganaConnection = (): Connection => {
+    return new Connection(GORBAGANA_RPC_URL, 'confirmed');
+};
+
+/**
+ * Helper function to validate if an address is valid for Gorbagana
+ * @param address - The address to validate
+ * @returns boolean indicating if the address is valid
+ */
+export const isValidGorbaganaAddress = (address: string): boolean => {
+    try {
+        // Since Gorbagana is Solana-based, we can use Solana's validation
+        const publicKey = new (require('@solana/web3.js').PublicKey)(address);
+        return publicKey.toBase58() === address;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Get wallet balance on Gorbagana testnet
+ * @param publicKey - The public key to check balance for
+ * @returns Promise<number> - Balance in lamports
+ */
+export const getGorbaganaBalance = async (publicKey: string): Promise<number> => {
+    try {
+        const connection = getGorbaganaConnection();
+        const pubKey = new (require('@solana/web3.js').PublicKey)(publicKey);
+        const balance = await connection.getBalance(pubKey);
+        return balance;
+    } catch (error: any) {
+        console.error('Error getting Gorbagana balance:', error);
+        throw new Error(`Failed to get balance: ${error.message}`);
+    }
+};
+
+
+
+
 export {
   mailHandler,
   createToken,
@@ -145,7 +265,8 @@ export {
   verifyCode,
   validEmail,
   multipleMailHandler,
-  validatePassword
+  validatePassword,
+  generateRandomLetters
 }
 
 

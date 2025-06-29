@@ -12,6 +12,7 @@ import connectToRedis from './config/config.redis';
 import { rateLimiter } from './config/config.ratelimitter';
 import gamerRoute from './apis/gamerAuth/routes';
 import SocketManager from './config/config.sockets';
+import MultiplayerRoutes from './apis/multiplayer/routes';
 
 
 declare global {
@@ -49,6 +50,7 @@ app.use(rateLimiter);
 // Routes
 // app.use('/api/v1/admin', AdminRoutes);        
 app.use('/api/v1/game', gamerRoute);
+app.use('/api/v1/multiplayer', MultiplayerRoutes);
 
 app.use(NotFound);
 app.use(ErrorHandler);

@@ -12,8 +12,10 @@
   "author": "WordStake - AyWebDevGuy",
   "license": "ISC",
   "dependencies": {
+    "@solana/web3.js": "^1.98.2",
     "argon2": "^0.40.3",
     "bignumber.js": "^9.1.2",
+    "bs58": "^6.0.0",
     "cloudinary": "^2.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
