@@ -153,6 +153,7 @@ interface IGameModel extends Model<IGame> {
     deleteGame(gameCode: string, hostPubkey: string): Promise<any>;
     updateGameDetails(gameCode: string, hostPubkey: string, updateData: any): Promise<any>;
     addPlayerToGame(gameCode: string, playerData: any): Promise<any>;
+    updatePlayerDetails(gameCode: string, playerPubkey: string, updateData: any): Promise<any>;
 }
 
 gameSchema.statics.clearDealCache = async function(patterns?: string[]) {
@@ -515,9 +516,110 @@ gameSchema.statics.addPlayerToGame = async function (gameCode: string, playerDat
     }
 };
 
+gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playerPubkey: string, updateData: any) {
+    const session = await startSession();
+    session.startTransaction();
 
+    try {
+        if (!gameCode || !playerPubkey) {
+            errorMessage(400, "Game code and player pubkey are required");
+        }
 
+        // Find the game
+        const game = await this.findOne({ gameCode: gameCode.trim() }).session(session);
+        
+        if (!game) {
+            errorMessage(404, "Game not found");
+        }
 
+        // Find the player in the game
+        const playerIndex = game.players.findIndex((player: any) => player.pubkey === playerPubkey.trim());
+        
+        if (playerIndex === -1) {
+            errorMessage(404, "Player not found in this game");
+        }
+
+        // Check if the player is the host
+        const isHost = game.host === playerPubkey.trim();
+
+        // Validate update data - only allow specific fields
+        const allowedFields = ['isPayed', 'isPlayed', 'playerScore'];
+        const sanitizedUpdateData: any = {};
+
+        Object.entries(updateData).forEach(([key, value]) => {
+            if (allowedFields.includes(key)) {
+                // Validate playerScore if provided
+                if (key === 'playerScore') {
+                    if (typeof value !== 'number' || value < 0) {
+                        errorMessage(400, "Player score must be a non-negative number");
+                    }
+                }
+                // Validate boolean fields
+                if (key === 'isPayed' || key === 'isPlayed') {
+                    if (typeof value !== 'boolean') {
+                        errorMessage(400, `${key} must be a boolean value`);
+                    }
+                }
+                sanitizedUpdateData[key] = value;
+            }
+        });
+
+        if (Object.keys(sanitizedUpdateData).length === 0) {
+            errorMessage(400, "No valid fields to update. Allowed fields: isPayed, isPlayed, playerScore");
+        }
+
+        // Create update object for the specific player in the array
+        const updateQuery: any = {};
+        Object.keys(sanitizedUpdateData).forEach(key => {
+            updateQuery[`players.${playerIndex}.${key}`] = sanitizedUpdateData[key];
+        });
+
+        // If the player is the host and isPayed is being set to true, also update hostPayed
+        if (isHost && sanitizedUpdateData.isPayed === true) {
+            updateQuery['hostPayed'] = true;
+        }
+
+        // Update the specific player's details
+        const updatedGame = await this.findOneAndUpdate(
+            { gameCode: gameCode.trim() },
+            { $set: updateQuery },
+            { new: true, runValidators: true, session }
+        );
+
+        // Remove sensitive data from response
+        const sanitizedGame = updatedGame.toObject();
+        delete sanitizedGame.letters;
+
+        // Clear related cache
+        // await this.clearDealCache([
+        //     `${CACHE_CONFIG.PREFIXES.DEAL_DETAIL}${gameCode}*`,
+        //     `${CACHE_CONFIG.PREFIXES.USER_DEALS}${playerPubkey}*`
+        // ]);
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return {
+            message: "Player details updated successfully",
+            data: sanitizedGame,
+            updatedPlayer: updatedGame.players[playerIndex],
+            ...(isHost && sanitizedUpdateData.isPayed === true && { hostPaymentUpdated: true })
+        };
+    } catch (error: any) {
+        await session.abortTransaction();
+        session.endSession();
+
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map((err: any) => err.message);
+            errorMessage(400, `Validation error: ${messages.join(', ')}`);
+        }
+
+        if (error.statusCode) {
+            throw error; // Re-throw custom errors from errorMessage
+        }
+        throw error;
+    }
+};
 const Game = model<IGame, IGameModel>("game", gameSchema);
 
 export default Game;

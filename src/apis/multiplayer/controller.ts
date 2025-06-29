@@ -30,7 +30,7 @@ const createGame: RequestHandler = async (req, res) => {
  * Get a game by game code
  */
 const getGame: RequestHandler = async (req, res) => {
-    const { gameCode } = req.params;
+    const { gameCode } = req.body;
     try {
         if (!gameCode) {
             return res.status(400).json({ error: "Game code is required" });
@@ -47,8 +47,7 @@ const getGame: RequestHandler = async (req, res) => {
  * Delete a game
  */
 const deleteGame: RequestHandler = async (req, res) => {
-    const { gameCode } = req.params;
-    const { hostPubkey } = req.body;
+    const { hostPubkey, gameCode } = req.body;
     try {
         // If hostPubkey is not provided, use the authenticated user's pubkey
         const hostIdentifier = hostPubkey || req.user;
@@ -62,6 +61,19 @@ const deleteGame: RequestHandler = async (req, res) => {
         }
         
         const result = await Game.deleteGame(gameCode, hostIdentifier);
+        res.status(200).json(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+};
+
+/**
+ * Update game details
+ */
+const updatePlayerDetails: RequestHandler = async (req, res) => {
+    const { updateData, gameCode, playerPubKey } = req.body;
+    try {
+        const result = await Game.updatePlayerDetails(gameCode, playerPubKey, updateData);
         res.status(200).json(result);
     } catch (error: any) {
         res.status(error.statusCode || 400).json({ error: error.message });
@@ -272,5 +284,6 @@ export {
     addPlayerToGame,
     getHostGames,
     getPlayerGames,
-    removePlayerFromGame
+    removePlayerFromGame,
+    updatePlayerDetails
 };

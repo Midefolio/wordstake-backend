@@ -1,6 +1,6 @@
 import express from "express";
 import requireAuth from "../gamerAuth/middleware";
-import { createGame } from "./controller";
+import { createGame, deleteGame, updatePlayerDetails } from "./controller";
 
 const MultiplayerRoutes = express.Router();
 
@@ -8,8 +8,9 @@ const MultiplayerRoutes = express.Router();
 MultiplayerRoutes.use(requireAuth);
 
 MultiplayerRoutes.post('/create', createGame);
+MultiplayerRoutes.delete('/delete', deleteGame);
+MultiplayerRoutes.post('/updateplayer', updatePlayerDetails);
 // MultiplayerRoutes.post('/updateGame', acceptRequest);
-// MultiplayerRoutes.delete('/delete', deleteDeal);
 // MultiplayerRoutes.post('/cancelDeal', cancelDeal);
 // MultiplayerRoutes.post('/user_requests', getSellerDeals);
 // MultiplayerRoutes.post('/user_deals', getUserDeals);
