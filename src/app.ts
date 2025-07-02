@@ -11,14 +11,14 @@ import logger from './config/config.logger';
 import connectToRedis from './config/config.redis'; 
 import { rateLimiter } from './config/config.ratelimitter';
 import gamerRoute from './apis/gamerAuth/routes';
-import SocketManager from './config/config.sockets';
 import MultiplayerRoutes from './apis/multiplayer/routes';
-
+import { Server } from "socket.io";
 
 declare global {
     var redis: ReturnType<typeof connectToRedis>;
-    var socketManager: SocketManager;
+    var io: Server;
 }
+
 
 // Set up express app
 const app = express();
@@ -58,6 +58,16 @@ app.use(ErrorHandler);
 // This function will start the server after Redis connects
 const startServer = () => {
     const server = http.createServer(app);
+
+    const io = new Server(server, {
+        cors: {
+            origin: "*", // Allow CORS for all origins
+        },
+    });
+
+    global.io = io;
+
+
     server.listen(env.PORT || 3000, (): void => {
         logger.info(`✅ Server listening on port ${env.PORT}`);
     });

@@ -7,6 +7,7 @@ import { createGorbaganaWallet, generateRandomLetters, mailHandler } from "../..
 
 // Assuming redis is defined globally for caching
 declare const redis: any;
+declare const io: any;
 
 // Cache configuration
 const CACHE_CONFIG = {
@@ -82,9 +83,8 @@ const gameSchema = new Schema(
             maxlength: [20, "Title cannot exceed 100 characters"]
         },
         duration: { 
-            type: String, 
-            required: [true, "please add a duration"],
-            trim: true 
+        type: Number, 
+        required: [true, "please add a duration"]
         },
         reward: { 
             type: Number, 
@@ -150,10 +150,12 @@ type IGame = InferSchemaType<typeof gameSchema>;
 interface IGameModel extends Model<IGame> {
     createGame(dealData: any): Promise<any>;
     getGame(gameCode: string): Promise<any>;
+    getPendingGameByHost(hostPubkey: string): Promise<any>;
     deleteGame(gameCode: string, hostPubkey: string): Promise<any>;
     updateGameDetails(gameCode: string, hostPubkey: string, updateData: any): Promise<any>;
     addPlayerToGame(gameCode: string, playerData: any): Promise<any>;
-    updatePlayerDetails(gameCode: string, playerPubkey: string, updateData: any): Promise<any>;
+    updatePlayerDetails(gameCode:string, playerPubkey:string, updateData:any): Promise<any>;
+    playGame(gameCode: string, playerPubkey: string): Promise<any>;
 }
 
 gameSchema.statics.clearDealCache = async function(patterns?: string[]) {
@@ -189,14 +191,13 @@ gameSchema.statics.clearDealCache = async function(patterns?: string[]) {
     }
 };
 
-
 gameSchema.statics.createGame = async function (gameData: any) {
     const session = await startSession();
     session.startTransaction();
     try {
         const sanitizedData = Object.entries(gameData).reduce((acc: any, [key, value]) => {
             if (typeof value === 'string') {
-                acc[key] = value.trim();
+                acc[key] = value;
             } else {
                 acc[key] = value;
             }
@@ -209,6 +210,15 @@ gameSchema.statics.createGame = async function (gameData: any) {
         // Verify host exists
         const existingHost = await UserAuth.findOne({ pubkey: host }).session(session);
         if (!existingHost) errorMessage(404, "Host not found");
+
+        // Check if host already has a pending game
+        const existingPendingGame = await this.findOne({ 
+            host: host, 
+            gameStatus: "pending" 
+        }).session(session);
+        if (existingPendingGame) {
+            errorMessage(400, "You already have a pending game. Please complete or cancel your current game before creating a new one.");
+        }
 
         // Check if gameCode already exists
         const existingGame = await this.findOne({ gameCode }).session(session);
@@ -274,7 +284,7 @@ gameSchema.statics.getGame = async function (gameCode: string) {
             errorMessage(400, "Game code is required");
         }
 
-        const game = await this.findOne({ gameCode: gameCode.trim() });
+        const game = await this.findOne({ gameCode: gameCode });
         
         if (!game) {
             errorMessage(404, "Game not found");
@@ -296,6 +306,50 @@ gameSchema.statics.getGame = async function (gameCode: string) {
     }
 };
 
+gameSchema.statics.getPendingGameByHost = async function (hostPubkey: string) {
+    try {
+        if (!hostPubkey) {
+            errorMessage(400, "Host pubkey is required");
+        }
+
+        // Verify the host exists
+        const existingHost = await UserAuth.findOne({ pubkey: hostPubkey });
+        if (!existingHost) {
+            errorMessage(404, "Host not found");
+        }
+
+        // Find pending game for this host
+        const game = await this.findOne({ 
+            host: hostPubkey, 
+            gameStatus: "pending" 
+        });
+
+        if (!game) {
+            return {
+                message: "No pending game found for this host",
+                data: null
+            };
+        }
+
+        // Remove sensitive data (letters and private key) from the response
+        const sanitizedGame = game.toObject();
+        delete sanitizedGame.letters;
+        if (sanitizedGame.address && sanitizedGame.address.privateKey) {
+            delete sanitizedGame.address.privateKey;
+        }
+
+        return {
+            message: "Pending game retrieved successfully",
+            data: sanitizedGame
+        };
+    } catch (error: any) {
+        if (error.statusCode) {
+            throw error; // Re-throw custom errors from errorMessage
+        }
+        throw error;
+    }
+};
+
 gameSchema.statics.deleteGame = async function (gameCode: string, hostPubkey: string) {
     const session = await startSession();
     session.startTransaction();
@@ -307,8 +361,8 @@ gameSchema.statics.deleteGame = async function (gameCode: string, hostPubkey: st
 
         // Find the game and verify the host
         const game = await this.findOne({ 
-            gameCode: gameCode.trim(), 
-            host: hostPubkey.trim() 
+            gameCode: gameCode, 
+            host: hostPubkey 
         }).session(session);
 
         if (!game) {
@@ -321,8 +375,8 @@ gameSchema.statics.deleteGame = async function (gameCode: string, hostPubkey: st
         }
 
         await this.deleteOne({ 
-            gameCode: gameCode.trim(), 
-            host: hostPubkey.trim() 
+            gameCode: gameCode, 
+            host: hostPubkey 
         }).session(session);
 
         // Clear any related cache
@@ -359,8 +413,8 @@ gameSchema.statics.updateGameDetails = async function (gameCode: string, hostPub
 
         // Find the game and verify the host
         const existingGame = await this.findOne({ 
-            gameCode: gameCode.trim(), 
-            host: hostPubkey.trim() 
+            gameCode: gameCode, 
+            host: hostPubkey 
         }).session(session);
 
         if (!existingGame) {
@@ -381,7 +435,7 @@ gameSchema.statics.updateGameDetails = async function (gameCode: string, hostPub
             }
             
             if (typeof value === 'string') {
-                acc[key] = value.trim();
+                acc[key] = value;
             } else {
                 acc[key] = value;
             }
@@ -389,7 +443,7 @@ gameSchema.statics.updateGameDetails = async function (gameCode: string, hostPub
         }, {});
 
         const updatedGame = await this.findOneAndUpdate(
-            { gameCode: gameCode.trim(), host: hostPubkey.trim() },
+            { gameCode: gameCode, host: hostPubkey },
             sanitizedUpdateData,
             { new: true, runValidators: true, session }
         );
@@ -403,6 +457,8 @@ gameSchema.statics.updateGameDetails = async function (gameCode: string, hostPub
         //     `${CACHE_CONFIG.PREFIXES.DEAL_DETAIL}${gameCode}*`,
         //     `${CACHE_CONFIG.PREFIXES.SELLER_DEALS}${hostPubkey}*`
         // ]);
+
+          io.emit(`game-${gameCode}`, sanitizedGame);
 
         await session.commitTransaction();
         session.endSession();
@@ -443,7 +499,7 @@ gameSchema.statics.addPlayerToGame = async function (gameCode: string, playerDat
         }
 
         // Find the game
-        const game = await this.findOne({ gameCode: gameCode.trim() }).session(session);
+        const game = await this.findOne({ gameCode: gameCode }).session(session);
         
         if (!game) {
             errorMessage(404, "Game not found");
@@ -455,30 +511,31 @@ gameSchema.statics.addPlayerToGame = async function (gameCode: string, playerDat
         }
 
         // Check if player is already in the game
-        const existingPlayer = game.players.find((player:any) => player.pubkey === pubkey.trim());
+        const existingPlayer = game.players.find((player:any) => player.pubkey === pubkey);
         if (existingPlayer) {
             errorMessage(400, "Player is already in this game");
         }
 
         // Verify the player exists in UserAuth
-        const existingUser = await UserAuth.findOne({ pubkey: pubkey.trim() }).session(session);
+        const existingUser = await UserAuth.findOne({ pubkey: pubkey }).session(session);
         if (!existingUser) {
             errorMessage(404, "Player not found in system");
         }
 
         // Sanitize player data
         const sanitizedPlayerData = {
-            pubkey: pubkey.trim(),
-            playerName: playerName.trim(),
+            pubkey: pubkey,
+            playerName: playerName,
             playerScore: playerData.playerScore || 0,
             profilePicture: playerData.profilePicture || '',
             isPlayed: false,
-            isHost: pubkey.trim() === game.host
+            isHost: pubkey === game.host,
+            isPayed:true
         };
 
         // Add player to game
         const updatedGame = await this.findOneAndUpdate(
-            { gameCode: gameCode.trim() },
+            { gameCode: gameCode },
             { $push: { players: sanitizedPlayerData } },
             { new: true, runValidators: true, session }
         );
@@ -492,9 +549,11 @@ gameSchema.statics.addPlayerToGame = async function (gameCode: string, playerDat
         //     `${CACHE_CONFIG.PREFIXES.DEAL_DETAIL}${gameCode}*`,
         //     `${CACHE_CONFIG.PREFIXES.USER_DEALS}${pubkey}*`
         // ]);
+        io.emit(`game-${gameCode}`, sanitizedGame);
 
         await session.commitTransaction();
         session.endSession();
+
 
         return {
             message: "Player added to game successfully",
@@ -516,7 +575,7 @@ gameSchema.statics.addPlayerToGame = async function (gameCode: string, playerDat
     }
 };
 
-gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playerPubkey: string, updateData: any) {
+gameSchema.statics.updatePlayerDetails = async function (gameCode:string, playerPubkey:string, updateData: any) {
     const session = await startSession();
     session.startTransaction();
 
@@ -526,7 +585,7 @@ gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playe
         }
 
         // Find the game
-        const game = await this.findOne({ gameCode: gameCode.trim() }).session(session);
+        const game = await this.findOne({gameCode:gameCode.trim()}).session(session);
         
         if (!game) {
             errorMessage(404, "Game not found");
@@ -581,7 +640,7 @@ gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playe
 
         // Update the specific player's details
         const updatedGame = await this.findOneAndUpdate(
-            { gameCode: gameCode.trim() },
+            { gameCode: gameCode },
             { $set: updateQuery },
             { new: true, runValidators: true, session }
         );
@@ -596,6 +655,8 @@ gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playe
         //     `${CACHE_CONFIG.PREFIXES.USER_DEALS}${playerPubkey}*`
         // ]);
 
+          io.emit(`game-${gameCode}`, sanitizedGame);
+
         await session.commitTransaction();
         session.endSession();
 
@@ -605,6 +666,7 @@ gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playe
             updatedPlayer: updatedGame.players[playerIndex],
             ...(isHost && sanitizedUpdateData.isPayed === true && { hostPaymentUpdated: true })
         };
+
     } catch (error: any) {
         await session.abortTransaction();
         session.endSession();
@@ -620,6 +682,77 @@ gameSchema.statics.updatePlayerDetails = async function (gameCode: string, playe
         throw error;
     }
 };
+
+gameSchema.statics.playGame = async function (gameCode: string, playerPubkey: string) {
+    try {
+        if (!gameCode || !playerPubkey) {
+            errorMessage(400, "Game code and player pubkey are required");
+        }
+
+        // Find the game
+        const game = await this.findOne({ gameCode: gameCode });
+        
+        if (!game) {
+            errorMessage(404, "Game not found");
+        }
+
+        // Verify the player exists in UserAuth database
+        const existingUser = await UserAuth.findOne({ pubkey: playerPubkey });
+        if (!existingUser) {
+            errorMessage(404, "Player not found in system");
+        }
+
+        // Find the player in the game
+        const player = game.players.find((player: any) => player.pubkey === playerPubkey);
+        
+        if (!player) {
+            errorMessage(404, "Player not found in game");
+        }
+
+        // Check game status and return appropriate response
+        switch (game.gameStatus) {
+            case "ended":
+                return {
+                    message: "Game ended",
+                    data: "game ended"
+                };
+
+            case "pending":
+                return {
+                    message: "Game not started",
+                    data: "game not started"
+                };
+
+            case "ongoing":
+                // Check if player has already played
+                if (player.isPlayed === true) {
+                    return {
+                        message: "Player already played game",
+                        data: "player already played game"
+                    };
+                }
+
+                // Player can play - return letters and duration
+                return {
+                    message: "Game ready to play",
+                    data: {
+                        letters: game.letters,
+                        duration: game.duration
+                    }
+                };
+
+            default:
+                errorMessage(400, "Invalid game status");
+        }
+
+    } catch (error: any) {
+        if (error.statusCode) {
+            throw error; // Re-throw custom errors from errorMessage
+        }
+        throw error;
+    }
+};
+
 const Game = model<IGame, IGameModel>("game", gameSchema);
 
 export default Game;

@@ -29,6 +29,28 @@ const createGame: RequestHandler = async (req, res) => {
 /**
  * Get a game by game code
  */
+const getPendingGameByHost: RequestHandler = async (req, res) => {
+    const { pubKey } = req.body;
+    try {
+        const result = await Game.getPendingGameByHost(pubKey);
+        res.status(200).json(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+};
+
+
+const playGame: RequestHandler = async (req, res) => {
+    const { gameCode, pubKey } = req.body;
+    try {
+        const result = await Game.playGame(gameCode, pubKey);
+        res.status(200).json(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+};
+
+
 const getGame: RequestHandler = async (req, res) => {
     const { gameCode } = req.body;
     try {
@@ -84,25 +106,9 @@ const updatePlayerDetails: RequestHandler = async (req, res) => {
  * Update game details
  */
 const updateGameDetails: RequestHandler = async (req, res) => {
-    const { gameCode } = req.params;
-    const { hostPubkey, ...updateData } = req.body;
+    const { gameCode, hostPubkey, updateData } = req.body;
     try {
-        // If hostPubkey is not provided, use the authenticated user's pubkey
-        const hostIdentifier = hostPubkey || req.user;
-        
-        if (!hostIdentifier) {
-            return res.status(400).json({ error: "Host pubkey is required" });
-        }
-        
-        if (!gameCode) {
-            return res.status(400).json({ error: "Game code is required" });
-        }
-        
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({ error: "Update data is required" });
-        }
-        
-        const result = await Game.updateGameDetails(gameCode, hostIdentifier, updateData);
+        const result = await Game.updateGameDetails(gameCode, hostPubkey, updateData);
         res.status(200).json(result);
     } catch (error: any) {
         res.status(error.statusCode || 400).json({ error: error.message });
@@ -113,8 +119,7 @@ const updateGameDetails: RequestHandler = async (req, res) => {
  * Add a player to a game
  */
 const addPlayerToGame: RequestHandler = async (req, res) => {
-    const { gameCode } = req.params;
-    const playerData = req.body;
+    const {gameCode, playerData} = req.body;
     try {
         if (!gameCode) {
             return res.status(400).json({ error: "Game code is required" });
@@ -285,5 +290,7 @@ export {
     getHostGames,
     getPlayerGames,
     removePlayerFromGame,
-    updatePlayerDetails
+    updatePlayerDetails,
+    getPendingGameByHost,
+    playGame
 };
